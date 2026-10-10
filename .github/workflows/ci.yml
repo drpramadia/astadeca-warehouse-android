@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -25,7 +29,6 @@ jobs:
       - name: Unit test
         run: ./gradlew testDebugUnitTest
         env:
-          # Nilai dummy: build tidak butuh kredensial nyata, hanya harus terisi.
           SUPABASE_URL: https://ci.supabase.co
           SUPABASE_ANON_KEY: ci-dummy-key
 
