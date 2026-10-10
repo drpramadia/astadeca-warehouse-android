@@ -12,6 +12,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+/** Sesi tidak bisa dipulihkan (refresh token kedaluwarsa/ditolak). UI harus kembali ke login. */
+class SessionExpiredException : Exception("Sesi berakhir. Silakan masuk lagi.")
+
 /**
  * Klien Supabase via REST. Tidak pakai SDK Supabase agar APK ringan dan
  * tidak ada shared build config dengan aplikasi web.
@@ -132,7 +135,8 @@ class SupabaseClient(context: Context) {
         }
     }
 
-    /** Segarkan token; true bila berhasil. */
+    /** Segarkan token; true bila berhasil. Refresh token Supabase single-use, jadi serialkan. */
+    @Synchronized
     fun refreshSession(): Boolean {
         val rt = refreshToken ?: return false
         val body = JSONObject().put("refresh_token", rt).toString()
@@ -156,6 +160,21 @@ class SupabaseClient(context: Context) {
         }
     }
 
+    /**
+     * Respons 401 pada request terautentikasi: coba refresh sekali.
+     * Return true bila token sudah diperbarui (pemanggil boleh retry).
+     * Return false kalau refresh gagal — sesi dibersihkan supaya UI kembali ke login.
+     */
+    private fun recoverFrom401(retryOn401: Boolean): Boolean {
+        if (!retryOn401) {
+            clearSession()
+            throw SessionExpiredException()
+        }
+        if (refreshSession()) return true
+        clearSession()
+        throw SessionExpiredException()
+    }
+
     /** GET tabel dengan query PostgREST, contoh: select=*&order=created_at.desc&limit=50 */
     fun get(table: String, query: String = "", retryOn401: Boolean = true): JSONArray {
         val url = buildString {
@@ -171,7 +190,7 @@ class SupabaseClient(context: Context) {
             .build()
         http.newCall(req).execute().use { resp ->
             val text = resp.body?.string().orEmpty()
-            if (resp.code == 401 && retryOn401 && refreshSession()) return get(table, query, retryOn401 = false)
+            if (resp.code == 401 && retryOn401 && recoverFrom401(retryOn401)) return get(table, query, retryOn401 = false)
             if (!resp.isSuccessful) throw Exception(errorMessage(text, resp.code))
             return if (text.isBlank()) JSONArray() else JSONArray(text)
         }
@@ -266,7 +285,7 @@ class SupabaseClient(context: Context) {
 
         resp.use {
             val text = resp.body?.string().orEmpty()
-            if (resp.code == 401 && authed && retryOn401 && refreshSession()) {
+            if (resp.code == 401 && authed && recoverFrom401(retryOn401)) {
                 return requestJson(method, url, body, authed, extraHeader, retryOn401 = false)
             }
             if (!resp.isSuccessful) throw Exception(errorMessage(text, resp.code))
@@ -285,7 +304,7 @@ class SupabaseClient(context: Context) {
      * POST JSON. Melempar Exception berisi pesan server bila HTTP tidak sukses,
      * supaya UI tidak pernah "gagal diam".
      */
-    private fun postJson(url: String, body: String, authed: Boolean, retryOn401: Boolean = false): JSONObject {
+    private fun postJson(url: String, body: String, authed: Boolean, retryOn401: Boolean = true): JSONObject {
         val builder = Request.Builder()
             .url(url)
             .header("apikey", anonKey)
@@ -301,7 +320,7 @@ class SupabaseClient(context: Context) {
 
         resp.use {
             val text = resp.body?.string().orEmpty()
-            if (resp.code == 401 && authed && retryOn401 && refreshSession()) {
+            if (resp.code == 401 && authed && recoverFrom401(retryOn401)) {
                 return postJson(url, body, authed, retryOn401 = false)
             }
             if (!resp.isSuccessful) throw Exception(errorMessage(text, resp.code))

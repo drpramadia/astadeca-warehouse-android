@@ -3,6 +3,7 @@ package com.astadeca.warehouse.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.astadeca.warehouse.data.SessionExpiredException
 import com.astadeca.warehouse.data.SupabaseClient
 import com.astadeca.warehouse.data.WarehouseRepository
 import kotlinx.coroutines.Dispatchers
@@ -109,6 +110,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     permissions = perms.toSet(),
                 ),
             )
+        } catch (e: SessionExpiredException) {
+            _state.value = AppState.LoggedOut
         } catch (e: Exception) {
             _state.value = AppState.Error(e.message ?: "Gagal memuat sesi.")
         }
@@ -122,6 +125,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 block()
+            } catch (e: SessionExpiredException) {
+                // Sesi mati di tengah aksi: paksa kembali ke login, bukan error mentah.
+                _state.value = AppState.LoggedOut
             } catch (e: Exception) {
                 onError(e.message ?: "Terjadi kesalahan.")
             }

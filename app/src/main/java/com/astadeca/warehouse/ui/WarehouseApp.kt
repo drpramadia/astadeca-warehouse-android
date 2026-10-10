@@ -63,10 +63,15 @@ fun WarehouseApp(vm: AppViewModel = viewModel()) {
     val session = (state as? AppState.LoggedIn)?.session
     val nav = rememberNavController()
 
-    // Login sukses mengubah state, bukan sinyal UI. Pindah ke HOME di sini.
-    LaunchedEffect(session != null) {
-        if (session != null && nav.currentDestination?.route == Routes.LOGIN) {
+    // Sesi berubah (login/logout/expired) -> pindahkan layar.
+    // Login sukses mengubah state, bukan sinyal UI; sesi mati memaksa kembali ke login.
+    val loggedIn = session != null
+    LaunchedEffect(loggedIn) {
+        val route = nav.currentDestination?.route
+        if (loggedIn && route == Routes.LOGIN) {
             nav.navigate(Routes.HOME) { popUpTo(Routes.LOGIN) { inclusive = true } }
+        } else if (!loggedIn && route != Routes.LOGIN) {
+            nav.navigate(Routes.LOGIN) { popUpTo(0) { inclusive = true } }
         }
     }
 
