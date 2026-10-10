@@ -202,34 +202,6 @@ class SupabaseClient(context: Context) {
         return org.json.JSONTokener(json.toString())
     }
 
-    /** INSERT satu baris, kembalikan id-nya (kolom id harus ada di tabel). */
-    fun insert(table: String, body: JSONObject): String {
-        val arr = JSONArray().put(body)
-        val res = requestJson(
-            method = "POST",
-            url = "$baseUrl/rest/v1/$table?select=id",
-            body = arr.toString(),
-            authed = true,
-            extraHeader = "Prefer" to "return=representation",
-        )
-        val json = JSONArray(res)
-        if (json.length() == 0) throw Exception("Server tidak mengembalikan baris yang dibuat.")
-        return json.getJSONObject(0).optString("id").takeIf { it.isNotBlank() }
-            ?: throw Exception("Baris dibuat tanpa id.")
-    }
-
-    /** INSERT banyak baris sekaligus. */
-    fun insertMany(table: String, rows: JSONArray) {
-        if (rows.length() == 0) return
-        requestJson(
-            method = "POST",
-            url = "$baseUrl/rest/v1/$table",
-            body = rows.toString(),
-            authed = true,
-            extraHeader = "Prefer" to "return=minimal",
-        )
-    }
-
     /**
      * PATCH dengan filter, mengembalikan baris yang berubah.
      * List kosong berarti tidak ada baris cocok (mis. guard tidak terpenuhi).
@@ -245,12 +217,6 @@ class SupabaseClient(context: Context) {
             extraHeader = "Prefer" to "return=representation",
         )
         return runCatching { JSONArray(res) }.getOrDefault(JSONArray())
-    }
-
-    /** DELETE dengan filter. */
-    fun delete(table: String, query: String) {
-        val url = "$baseUrl/rest/v1/$table" + if (query.isBlank()) "" else "?$query"
-        requestJson(method = "DELETE", url = url, body = null, authed = true, extraHeader = "Prefer" to "return=minimal")
     }
 
     /** POST/PATCH/DELETE JSON generik. Melempar dengan pesan server bila gagal. */

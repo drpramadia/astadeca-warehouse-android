@@ -46,25 +46,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
         return api.get("inventory", q)
     }
 
-    fun inventoryByBasket(basketCode: String): JSONArray =
-        api.get(
-            "inventory",
-            "select=id,product_id,batch_number,quantity_kg,status,expiry_date,products(name,sku),cold_storage_baskets(code)" +
-                "&cold_storage_baskets.code=eq.${enc(basketCode)}&order=received_at.asc.nullslast",
-        )
-
-    fun inventoryByBatch(batch: String): JSONArray =
-        api.get(
-            "inventory",
-            "select=id,product_id,batch_number,quantity_kg,status,expiry_date,products(name,sku),cold_storage_baskets(code)" +
-                "&batch_number=eq.${enc(batch)}&order=received_at.asc.nullslast",
-        )
-
-    // ---------- Products ----------
-
-    fun products(limit: Int = 500): JSONArray =
-        api.get("products", "select=id,name,sku,unit_id&is_active=eq.true&order=name.asc&limit=$limit")
-
     // ---------- Baskets ----------
 
     fun baskets(search: String = "", limit: Int = 200): JSONArray {
@@ -76,20 +57,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
         return api.get("cold_storage_baskets", q)
     }
 
-    fun createBasket(organizationId: String, zoneId: String, code: String, capacityKg: Double): Result<String> =
-        runCatching {
-            val body = JSONObject()
-                .put("organization_id", organizationId)
-                .put("zone_id", zoneId)
-                .put("code", code)
-                .put("capacity_kg", capacityKg)
-                .put("status", "AVAILABLE")
-            api.insert("cold_storage_baskets", body)
-        }
-
-    fun zones(): JSONArray =
-        api.get("cold_storage_zones", "select=id,name,code,cold_storage_id,cold_storages(name)&order=name.asc")
-
     // ---------- Goods Receipt ----------
 
     fun goodsReceipts(limit: Int = 100): JSONArray =
@@ -98,53 +65,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
             "select=id,gr_number,received_at,notes,purchase_orders(po_number),goods_receipt_lines(id,product_id,batch_number,quantity_kg,quantity_received,condition,products(name,sku),delivery_order_id)" +
                 "&order=received_at.desc&limit=$limit",
         )
-
-    fun goodsReceiptDetail(grId: String): JSONObject? =
-        api.get(
-            "goods_receipts",
-            "select=id,gr_number,received_at,notes,purchase_orders(po_number),goods_receipt_lines(id,product_id,batch_number,quantity_kg,quantity_received,condition,products(name,sku))" +
-                "&id=eq.${enc(grId)}&limit=1",
-        ).optJSONObject(0)
-
-    /** Terima barang: buat GR + lines. Memakai RPC bila ada, jika tidak insert biasa. */
-    fun createGoodsReceipt(
-        organizationId: String,
-        poId: String?,
-        notes: String?,
-        receivedBy: String?,
-        lines: List<GrLine>,
-    ): Result<String> = runCatching {
-        val grNumber = generateNumber("GR")
-        val gr = JSONObject()
-            .put("organization_id", organizationId)
-            .put("gr_number", grNumber)
-            .put("received_at", nowIso())
-            .apply { if (poId != null) put("po_id", poId) }
-            .apply { if (!notes.isNullOrBlank()) put("notes", notes) }
-            .apply { if (receivedBy != null) put("received_by", receivedBy) }
-        val grId = api.insert("goods_receipts", gr)
-
-        val arr = JSONArray()
-        lines.forEach { l ->
-            arr.put(
-                JSONObject()
-                    .put("gr_id", grId)
-                    .put("product_id", l.productId)
-                    .put("quantity_kg", l.quantityKg)
-                    .put("quantity_received", l.quantityKg)
-                    .put("condition", l.condition)
-                    .apply { if (!l.batchNumber.isNullOrBlank()) put("batch_number", l.batchNumber) },
-            )
-        }
-        try {
-            api.insertMany("goods_receipt_lines", arr)
-        } catch (e: Exception) {
-            // Batalkan GR yatim supaya tidak ada dokumen tanpa isi.
-            runCatching { api.delete("goods_receipts", "id=eq.$grId") }
-            throw e
-        }
-        grId
-    }.recoverCatching { throw it }
 
     // ---------- Goods Issue (manual, tanpa dokumen) ----------
 
@@ -182,52 +102,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
                 "&order=inspected_at.desc&limit=$limit",
         )
 
-    fun createQcInspection(
-        organizationId: String,
-        grId: String?,
-        deliveryOrderId: String?,
-        inspectionType: String,
-        inspectorUserId: String,
-        inspectorName: String?,
-        notes: String?,
-        lines: List<QcLine>,
-    ): Result<String> = runCatching {
-        val head = JSONObject()
-            .put("organization_id", organizationId)
-            .put("inspection_type", inspectionType)
-            .put("inspector_user_id", inspectorUserId)
-            .put("status", "COMPLETED")
-            .put("inspected_at", nowIso())
-            .apply { if (grId != null) put("gr_id", grId) }
-            .apply { if (deliveryOrderId != null) put("delivery_order_id", deliveryOrderId) }
-            .apply { if (!inspectorName.isNullOrBlank()) put("inspector_name", inspectorName) }
-            .apply { if (!notes.isNullOrBlank()) put("notes", notes) }
-        val id = api.insert("qc_inspections", head)
-
-        val arr = JSONArray()
-        lines.forEach { l ->
-            arr.put(
-                JSONObject()
-                    .put("inspection_id", id)
-                    .put("gr_line_id", l.grLineId)
-                    .put("condition", l.condition)
-                    .put("quantity_kg", l.quantityKg)
-                    .put("checklist", l.checklist ?: JSONObject())
-                    .apply { if (!l.notes.isNullOrBlank()) put("notes", l.notes) }
-                    .apply { if (!l.itemName.isNullOrBlank()) put("item_name", l.itemName) },
-            )
-        }
-        if (arr.length() > 0) {
-            try {
-                api.insertMany("qc_inspection_lines", arr)
-            } catch (e: Exception) {
-                runCatching { api.delete("qc_inspections", "id=eq.$id") }
-                throw e
-            }
-        }
-        id
-    }.recoverCatching { throw it }
-
     // ---------- Waste ----------
 
     fun wasteRecords(limit: Int = 100): JSONArray =
@@ -241,27 +115,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
             "stock_waste",
             "select=id,quantity_kg,reason,notes,recorded_at,products(name,sku)&order=recorded_at.desc&limit=$limit",
         )
-
-    fun recordStockWaste(
-        organizationId: String,
-        productId: String,
-        batchNumber: String?,
-        quantityKg: Double,
-        reason: String,
-        notes: String?,
-        recordedBy: String?,
-    ): Result<Unit> = runCatching {
-        val body = JSONObject()
-            .put("organization_id", organizationId)
-            .put("product_id", productId)
-            .put("quantity_kg", quantityKg)
-            .put("reason", reason)
-            .put("recorded_at", nowIso())
-            .apply { if (!batchNumber.isNullOrBlank()) put("batch_number", batchNumber) }
-            .apply { if (!notes.isNullOrBlank()) put("notes", notes) }
-            .apply { if (recordedBy != null) put("recorded_by", recordedBy) }
-        api.insert("stock_waste", body)
-    }
 
     // ---------- Surat Jalan ----------
 
@@ -298,17 +151,6 @@ class WarehouseRepository(private val api: SupabaseClient) {
         if (rows.length() == 0) throw Exception("Permintaan tidak ditemukan atau tidak boleh diubah.")
     }
 
-    fun generateNumber(prefix: String): String {
-        val t = api.rpc("generate_number", JSONObject().put("p_prefix", prefix))
-        val v = t.nextValue()
-        return when (v) {
-            is String -> v
-            is JSONArray -> v.optString(0)
-            is JSONObject -> v.optString("value", v.optString("generate_number"))
-            else -> ""
-        }
-    }
-
     private fun enc(s: String): String = Query.enc(s)
 
     companion object {
@@ -318,20 +160,4 @@ class WarehouseRepository(private val api: SupabaseClient) {
             return fmt.format(java.util.Date())
         }
     }
-
-    data class GrLine(
-        val productId: String,
-        val quantityKg: Double,
-        val batchNumber: String? = null,
-        val condition: String = "GOOD",
-    )
-
-    data class QcLine(
-        val grLineId: String,
-        val condition: String,
-        val quantityKg: Double,
-        val itemName: String? = null,
-        val notes: String? = null,
-        val checklist: JSONObject? = null,
-    )
 }
