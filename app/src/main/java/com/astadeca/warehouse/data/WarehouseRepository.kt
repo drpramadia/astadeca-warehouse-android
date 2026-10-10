@@ -149,54 +149,28 @@ class WarehouseRepository(private val api: SupabaseClient) {
     // ---------- Goods Issue (manual, tanpa dokumen) ----------
 
     /**
-     * Hitung stok baru lalu update dengan guard `quantity_kg >= take`.
-     * Guard mencegah dua pengeluaran bersamaan membuat stok negatif.
+     * Keluarkan stok lewat RPC `issue_stock` — satu transaksi di server:
+     * lock baris, cek izin, guard stok, update, catat movement. Tidak ada
+     * jendela di mana stok berkurang tanpa jejak movement.
      */
-    fun decreaseStock(inventoryId: String, currentQty: Double, take: Double): Double {
+    fun issueStock(inventoryId: String, take: Double, notes: String?, performedBy: String?): Double {
         require(take > 0) { "Jumlah harus > 0." }
-        require(take <= currentQty) { "Stok hanya $currentQty kg." }
-        val newQty = currentQty - take
-        val rows = api.updateReturning(
-            "inventory",
-            "id=eq.${enc(inventoryId)}&quantity_kg=gte.$take",
-            JSONObject().put("quantity_kg", newQty),
-        )
-        if (rows.length() == 0) throw Exception("Stok berubah atau tidak cukup. Muat ulang lalu coba lagi.")
-        return newQty
-    }
-
-    /**
-     * Kembalikan stok ke nilai sebelumnya. Dipakai rollback bila pencatatan
-     * movement gagal, supaya stok tidak berkurang tanpa jejak.
-     */
-    fun addStock(inventoryId: String, restoreTo: Double) {
-        api.updateReturning("inventory", "id=eq.${enc(inventoryId)}", JSONObject().put("quantity_kg", restoreTo))
-    }
-
-    fun recordMovement(
-        organizationId: String,
-        type: String,
-        productId: String,
-        batchNumber: String?,
-        quantityKg: Double,
-        fromLocation: String?,
-        referenceType: String,
-        referenceId: String?,
-        notes: String?,
-        performedBy: String?,
-    ): Unit {
-        val movement = JSONObject()
-            .put("organization_id", organizationId)
-            .put("movement_type", type)
-            .put("product_id", productId)
-            .put("quantity_kg", quantityKg)
-            .put("reference_type", referenceType)
-            .apply { if (fromLocation != null) put("from_location", fromLocation) }
-            .apply { if (referenceId != null) put("reference_id", referenceId) }
-            .apply { if (!batchNumber.isNullOrBlank()) put("batch_number", batchNumber) }
-            .apply { if (!notes.isNullOrBlank()) put("notes", notes) }
-            .apply { if (performedBy != null) put("performed_by", performedBy) }
-        api.insert("inventory_movements", movement)
+        val params = JSONObject()
+            .put("p_inventory_id", inventoryId)
+            .put("p_take", take)
+            .put("p_reference_type", "MANUAL")
+            .apply { if (!notes.isNullOrBlank()) put("p_notes", notes) }
+            .apply { if (performedBy != null) put("p_performed_by", performedBy) }
+        val v = api.rpc("issue_stock", params).nextValue()
+        val obj = when (v) {
+            is JSONObject -> v
+            is JSONArray -> if (v.length() > 0) v.getJSONObject(0) else JSONObject()
+            else -> JSONObject()
+        }
+        if (!obj.optBoolean("success", false)) {
+            throw Exception(obj.optString("message").ifBlank { "Pengeluaran stok gagal." })
+        }
+        return obj.optDouble("quantity_kg", 0.0)
     }
 
     // ---------- QC ----------

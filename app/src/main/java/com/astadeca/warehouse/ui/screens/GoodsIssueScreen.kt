@@ -113,30 +113,14 @@ private fun IssueRow(
                         vm.runIo(onIssueError) {
                             try {
                                 val session = vm.sessionOrNull()
-                                val orgId = session?.organizationId ?: throw Exception("Sesi tidak punya organisasi.")
                                 withContext(Dispatchers.IO) {
-                                    // 1) kurangi stok dengan guard, 2) catat movement
-                                    vm.repo.decreaseStock(row.optString("id"), qty, take)
-                                    try {
-                                        vm.repo.recordMovement(
-                                            organizationId = orgId,
-                                            type = "OUT",
-                                            productId = row.optString("product_id"),
-                                            batchNumber = batch,
-                                            quantityKg = take,
-                                            fromLocation = "WAREHOUSE",
-                                            referenceType = "MANUAL",
-                                            referenceId = null,
-                                            notes = "Pengeluaran manual (APK warehouse)",
-                                            performedBy = session.userId,
-                                        )
-                                    } catch (e: Exception) {
-                                        // Kembalikan stok supaya tidak hilang tanpa catatan.
-                                        runCatching {
-                                            vm.repo.addStock(row.optString("id"), qty)
-                                        }
-                                        throw Exception("${e.message} — stok dikembalikan.")
-                                    }
+                                    // Satu RPC transaksional: lock + guard + update + movement.
+                                    vm.repo.issueStock(
+                                        inventoryId = row.optString("id"),
+                                        take = take,
+                                        notes = "Pengeluaran manual (APK warehouse)",
+                                        performedBy = session?.userId,
+                                    )
                                 }
                                 value = ""
                                 onDone()

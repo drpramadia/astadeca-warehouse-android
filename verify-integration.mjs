@@ -35,6 +35,14 @@ for (const t of tables) {
 }
 console.log(`\n${ok}/${tables.length} tabel warehouse ada di ref ${ref}`)
 
+// 4) RPC transaksional yang dipakai APK harus ada (bukan 404 dari PostgREST).
+//    403/400 = fungsi ada tapi ditolak tanpa sesi (benar). 404 = belum dimigrasi.
+const rpcCheck = await fetch(`${url}/rest/v1/rpc/issue_stock`, {
+  method: 'POST', headers: h,
+  body: JSON.stringify({ p_inventory_id: '00000000-0000-0000-0000-000000000000', p_take: 1 }),
+})
+console.log(`rpc issue_stock: HTTP ${rpcCheck.status} ${rpcCheck.status === 404 ? '(BELUM DIMIGRASI)' : '(ada)'}`)
+
 // 3) Tabel project LAIN harus TIDAK ada di sini (kalau ada, berarti salah project)
 const wrongRef = 'rivofdqcouniijfbtlyl'
 console.log(`\nRef project lain (warehouse-system): ${wrongRef} — TIDAK dipakai APK ini`)
