@@ -1,0 +1,4 @@
+# Kredensial Supabase. Nilai nyata diisi oleh build.env atau gradle -P.
+# Salin file ini jadi local.properties lalu isi (local.properties tidak masuk git).
+supabase.url=https://YOUR-PROJECT.supabase.co
+supabase.anonKey=YOUR-ANON-KEY

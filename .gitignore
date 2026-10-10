@@ -1,0 +1,31 @@
+# Kredensial — jangan pernah di-commit
+local.properties
+*.keystore
+*.jks
+keystore.properties
+
+# Gradle / Android
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+local.properties.bak
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log build & crash JVM (tidak untuk di-commit)
+build-log.txt
+build-full.txt
+errors.txt
+hs_err_pid*.log
+replay_pid*.log
+
