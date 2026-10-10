@@ -15,9 +15,10 @@ APK warehouse-only. Native Kotlin + Jetpack Compose. Terpisah total dari `erp-as
 
 ## Build
 ```
-gradlew.bat assembleDebug      # APK debug
-gradlew.bat testDebugUnitTest  # unit test
-gradlew.bat assembleRelease    # APK release ter-sign (butuh keystore.properties)
+gradlew.bat assembleDebug      # APK debug (Windows)
+./gradlew assembleDebug        # APK debug (Linux/macOS/CI)
+./gradlew testDebugUnitTest    # unit test
+./gradlew assembleRelease      # APK release ter-sign (butuh keystore.properties)
 ```
 Output: `app/build/outputs/apk/{debug,release}/`.
 
