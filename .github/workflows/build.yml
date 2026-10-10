@@ -1,4 +1,4 @@
-﻿name: Android CI
+﻿name: Build
 
 on:
   push:
@@ -11,12 +11,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Setup JDK
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
       - name: Make gradlew executable
         run: chmod +x gradlew
-      - name: Build
-        run: ./gradlew assembleDebug
+      - name: Build Debug
+        run: ./gradlew assembleDebug --no-daemon
